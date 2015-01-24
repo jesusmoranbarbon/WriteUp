@@ -1,0 +1,130 @@
+Prediction Assignment Writeup
+========================================================
+1. Libraries
+----------------
+```{r, eval=FALSE}
+library(caret)
+library(Amelia)
+library(C50)
+library(e1071)
+```
+
+2. Load the data
+----------------
+```{r, cache=TRUE}
+training <- read.csv("pml-training.csv")
+test <- read.csv("pml-testing.csv")
+```
+
+3. Clean the data
+----------------
+First remove the missing values
+```{r, cache=TRUE}
+missmap(training, main="Missings Map in Human Activity Recognition training dataset", col=c("yellow", "black"), legend=FALSE)
+```
+
+The majority of files contains missing values, and this missing values are in the same columns. To clean the dataset, the columns who has more than 10% of files with missing values are removed
+```{r, cache=TRUE}
+removedColumns <- names(training[colSums(is.na(training))>(0.1*nrow(training))])
+cleanTraining <- training[!names(training)%in%removedColumns]
+```
+
+Now it is time to remove the files with missing values
+```{r, cache=TRUE}
+cleanTraining <- na.omit(cleanTraining)
+```
+
+In the dataset there are variables with near zero variance:
+```{r, cache=TRUE}
+summary(cleanTraining)
+```
+
+It is time to remove the variables with near zero variance
+```{r, cache=TRUE}
+cleanTrainingNZV <- nearZeroVar(cleanTraining, saveMetrics=TRUE)
+removedColumns <- c(removedColumns, rownames(cleanTrainingNZV[cleanTrainingNZV$nzv==TRUE,]))
+cleanTraining <- cleanTraining[!names(cleanTraining)%in%removedColumns]
+```
+
+Finally the non-numbers are removed
+```{r, cache=TRUE}
+nonNumericCleanTraining <- names(cleanTraining[!sapply(cleanTraining, is.numeric)])
+nonNumericCleanTraining <- nonNumericCleanTraining[nonNumericCleanTraining!="classe"]
+removedColumns <- c(removedColumns, nonNumericCleanTraining)
+cleanTraining <- cleanTraining[!names(cleanTraining)%in%removedColumns]
+```
+
+4. Trainning
+----------------
+Cross validation is used to train the model with 3 folds:
+```{r, cache=TRUE}
+fitControl <- trainControl(method = "cv", number = 3)
+```
+
+Train the model
+```{r, cache=TRUE, warning=FALSE}
+set.seed(1)
+md <- train(classe ~ ., data = cleanTraining, method = "C5.0", trControl=fitControl, importance=TRUE)
+```
+
+The importance of variables is check
+```{r, cache=TRUE}
+varImp(md$finalModel, scale=FALSE)
+```
+
+The model is overfitting for the X variable. This variable is removed and the model is created again:
+```{r, cache=TRUE}
+removedColumns <- c(removedColumns, "X")
+cleanTraining <- cleanTraining[!names(cleanTraining)%in%removedColumns]
+set.seed(1)
+md <- train(classe ~ ., data = cleanTraining, method = "C5.0", trControl=fitControl, importance=TRUE)
+```
+
+The importance of variables is check again:
+```{r, cache=TRUE}
+varImp(md$finalModel, scale=FALSE)
+```
+
+5. The sample error is analyzed
+----------------
+```{r, cache=TRUE}
+md
+plot(md, metric="Accuracy")
+```
+The acuraccy and kappa is higth, it is possible overfiting in the model
+
+6. Prediction in test dataset
+----------------
+Remove the columns removed in training dataset (for missing values, for near zero variance or for casuse overfitting):
+```{r, cache=TRUE}
+cleanTesting <- test[!names(test)%in%removedColumns]
+```
+
+Remove the files with missing values
+```{r, cache=TRUE}
+cleanTesting <- na.omit(cleanTesting)
+```
+
+A prediction of the test set is obtained
+```{r, cache=TRUE}
+predictionTest <- predict(md, cleanTesting)
+predictionTest
+```
+
+Create the solutions files:
+```{r, cache=TRUE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predictionTest)
+```
+
+7. score of solutions
+----------------
+100% (20/20)
+
